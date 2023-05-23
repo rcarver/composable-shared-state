@@ -1,7 +1,6 @@
 import XCTest
 import ComposableArchitecture
-
-@testable import ComposableScopedState
+import ComposableScopedState
 
 @MainActor
 final class ScopedStateInitTests: XCTestCase {
@@ -12,7 +11,7 @@ final class ScopedStateInitTests: XCTestCase {
 
     struct Child: ReducerProtocol {
         struct State: Equatable {
-            @ScopedStateValue<CounterKey> var counter
+            @ScopedState<CounterKey> var counter
         }
         typealias Action = Never
         var body: some ReducerProtocolOf<Self> { EmptyReducer() }
@@ -21,7 +20,7 @@ final class ScopedStateInitTests: XCTestCase {
     func testDefaultValue() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
-                @ScopedState<CounterKey> var counter
+                @CreateScopedState<CounterKey> var counter
                 var child = Child.State()
             }
             typealias Action = Never
@@ -38,7 +37,7 @@ final class ScopedStateInitTests: XCTestCase {
     func testWithValue() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
-                @ScopedState<CounterKey> var counter = 2
+                @CreateScopedState<CounterKey> var counter = 2
                 var child = Child.State()
             }
             typealias Action = Never
@@ -55,7 +54,7 @@ final class ScopedStateInitTests: XCTestCase {
     func testWithDependencies() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
-                @ScopedState<CounterKey> var counter
+                @CreateScopedState<CounterKey> var counter
                 var child = Child.State()
             }
             typealias Action = Never
@@ -66,16 +65,16 @@ final class ScopedStateInitTests: XCTestCase {
         ) {
             Parent()
         } withDependencies: {
-            $0.sharedState(CounterKey.self, 2)
+            $0.createScopedState(CounterKey.self, 2)
         }
         XCTAssertEqual(store.state.counter, 2)
         XCTAssertEqual(store.state.child.counter, 2)
     }
 
-    func testWithValueOverridesDependency() async throws {
+    func testWithValueAndWithDependency() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
-                @ScopedState<CounterKey> var counter = 3
+                @CreateScopedState<CounterKey> var counter = 3
                 var child = Child.State()
             }
             typealias Action = Never
@@ -86,10 +85,30 @@ final class ScopedStateInitTests: XCTestCase {
         ) {
             Parent()
         } withDependencies: {
-            $0.sharedState(CounterKey.self, 2)
+            $0.createScopedState(CounterKey.self, 2)
         }
         XCTAssertEqual(store.state.counter, 3)
         XCTAssertEqual(store.state.child.counter, 2)
+    }
+
+    func testInitChildWithValue() async throws {
+        struct Parent: ReducerProtocol {
+            struct State: Equatable {
+                @CreateScopedState<CounterKey> var counter = 3
+                var child = Child.State()
+                init() {
+                    self.child.counter = self.counter
+                }
+            }
+            typealias Action = Never
+            var body: some ReducerProtocolOf<Self> { EmptyReducer() }
+        }
+        let store = TestStore(
+            initialState: Parent.State(),
+            reducer: Parent()
+        )
+        XCTAssertEqual(store.state.counter, 3)
+        XCTAssertEqual(store.state.child.counter, 3)
     }
 }
 
@@ -103,7 +122,7 @@ final class WithScopedStateTests: XCTestCase {
     func testObserveState() async throws {
         struct Child: ReducerProtocol {
             struct State: Equatable {
-                @ScopedStateValue<CounterKey> var counter
+                @ScopedState<CounterKey> var counter
                 var counterValue: [Int]?
             }
             enum Action: Equatable {
@@ -125,7 +144,7 @@ final class WithScopedStateTests: XCTestCase {
         }
         struct Parent: ReducerProtocol {
             struct State: Equatable {
-                @ScopedState<CounterKey> var counter
+                @CreateScopedState<CounterKey> var counter
                 var child1 = Child.State()
                 var child2 = Child.State()
             }
@@ -184,7 +203,7 @@ final class WithScopedStateTests: XCTestCase {
     func testPresentation() async throws {
         struct Child: ReducerProtocol {
             struct State: Equatable {
-                @ScopedStateValue<CounterKey> var counter
+                @ScopedState<CounterKey> var counter
                 var counterValue: [Int]?
             }
             enum Action: Equatable {
@@ -206,7 +225,7 @@ final class WithScopedStateTests: XCTestCase {
         }
         struct Parent: ReducerProtocol {
             struct State: Equatable {
-                @ScopedState<CounterKey> var counter
+                @CreateScopedState<CounterKey> var counter
                 @PresentationState var child: Child.State?
             }
             enum Action: Equatable {

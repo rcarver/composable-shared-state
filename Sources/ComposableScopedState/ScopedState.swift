@@ -2,184 +2,6 @@ import Combine
 import ComposableArchitecture
 import Foundation
 
-import SwiftUI
-
-/// Define a key into the shared value, with a default value.
-struct CounterKey: ScopedStateKey {
-    static var defaultValue: Int = 4
-}
-
-struct ParentFeature: ReducerProtocol {
-    struct State: Equatable {
-        var child1 = ChildFeature.State(name: "A")
-        var child2 = ChildFeature.State(name: "B")
-        var child3 = ChildFeature.State(name: "C")
-        @PresentationState var presentedChild: ChildFeature.State?
-        @ScopedState<CounterKey> var counter = 10
-    }
-    enum Action: Equatable {
-        case increment
-        case child1(ChildFeature.Action)
-        case child2(ChildFeature.Action)
-        case child3(ChildFeature.Action)
-        case presentChildButtonTapped
-        case presentedChild(PresentationAction<ChildFeature.Action>)
-    }
-    init() {}
-    var body: some ReducerProtocol<State, Action> {
-        WithScopedState(\.$counter) {
-            Scope(state: \.child1, action: /Action.child1) {
-                ChildFeature()
-            }
-            Scope(state: \.child2, action: /Action.child2) {
-                ChildFeature()
-            }
-            Reduce { state, action in
-                switch action {
-                case .increment:
-                    state.counter += 1
-                    return .none
-                case .child1, .child2, .child3:
-                    return .none
-                case .presentChildButtonTapped:
-                    state.presentedChild = ChildFeature.State(name: "P")
-                    return .none
-                case .presentedChild:
-                    return .none
-                }
-            }
-            .ifLet(\.$presentedChild, action: /Action.presentedChild) {
-                ChildFeature()
-            }
-        }
-        Scope(state: \.child3, action: /Action.child3) {
-            ChildFeature()
-        }
-    }
-}
-
-struct ChildFeature: ReducerProtocol {
-    struct State: Equatable {
-        var localCount: Int = 0
-        var name: String
-        var sum: Int = 0
-        @ScopedStateValue<CounterKey> var sharedCount
-        init(name: String) {
-            self.name = name
-            @ScopedStateValue<CounterKey> var counter
-            print("ChildFeature.init", name, counter, self.sharedCount)
-        }
-    }
-    enum Action: Equatable {
-        case sharedCount(ScopedStateAction<CounterKey>)
-        case sum
-        case task
-    }
-    @ScopedStateValue<CounterKey> var counter
-    init() {}
-    var body: some ReducerProtocol<State, Action> {
-        Reduce { state, action in
-            switch action {
-            case .sharedCount(.willChange(let newValue)):
-                print("ChildFeature.willChange", state.name, state.sharedCount, "=>", newValue)
-                return .none
-            case .sum:
-                state.sum = state.localCount + state.sharedCount
-                return .none
-            case .task:
-                state.localCount = .random(in: 1..<100)
-                return .none
-            }
-        }
-        .observeState(\.$sharedCount, action: /Action.sharedCount)
-    }
-}
-
-struct ParentView: View {
-    let store: StoreOf<ParentFeature>
-    var body: some View {
-        List {
-            WithViewStore(store, observe: { $0 }) { viewStore in
-                HStack {
-                    Button(action: { viewStore.send(.increment) }) {
-                        Text("Increment")
-                    }
-                    Spacer()
-                    Text(viewStore.counter.formatted())
-                }
-            }
-            Section {
-                ChildView(store: store.scope(state: \.child1, action: ParentFeature.Action.child1))
-            }
-            Section {
-                ChildView(store: store.scope(state: \.child2, action: ParentFeature.Action.child2))
-            }
-            Section {
-                ChildView(store: store.scope(state: \.child3, action: ParentFeature.Action.child3))
-            }
-        }
-        .safeAreaInset(edge: .bottom, content: {
-            Button("Present Child") {
-                ViewStore(store.stateless).send(.presentChildButtonTapped)
-            }
-        })
-        .sheet(
-            store: store.scope(state: \.$presentedChild, action: ParentFeature.Action.presentedChild)
-        ) { store in
-            List {
-                ChildView(store: store)
-            }
-        }
-    }
-}
-
-struct ChildView: View {
-    let store: StoreOf<ChildFeature>
-    var body: some View {
-        WithViewStore(store, observe: { $0 }) { viewStore in
-            HStack {
-                Text("Local Count")
-                Spacer()
-                Text(viewStore.localCount.formatted())
-            }
-            HStack {
-                Text("Shared Count")
-                Spacer()
-                Text(viewStore.sharedCount.formatted())
-            }
-            HStack {
-                Button(action: { viewStore.send(.sum) }) {
-                    Text("Sum Counts")
-                }
-                Spacer()
-                Text(viewStore.sum.formatted())
-            }
-        }
-        .task { await ViewStore(store.stateless).send(.task).finish() }
-    }
-}
-
-struct Parent_Previews: PreviewProvider {
-    static var previews: some View {
-        ParentView(
-            store: Store(
-                initialState: ParentFeature.State()
-            ) {
-                ParentFeature()
-            } withDependencies: {
-                // This default value will be used where a parent doesn't provide one.
-                $0.sharedState(CounterKey.self, 100)
-            }
-        )
-    }
-}
-
-
-
-
-///////////////////////////////////////////////
-
-
 public protocol ScopedStateKey: Sendable, Equatable {
     associatedtype Value: Sendable
     static var defaultValue: Value { get }
@@ -187,8 +9,8 @@ public protocol ScopedStateKey: Sendable, Equatable {
 
 /// A property wrapper that can share its value within a defined scope.
 @propertyWrapper
-public struct ScopedState<Key: ScopedStateKey> where Key.Value: Equatable {
-    let id: _ScopeIdentifier
+public struct CreateScopedState<Key: ScopedStateKey> where Key.Value: Equatable {
+    fileprivate let id: _ScopeIdentifier
     private var _wrappedValue: Key.Value
     public var projectedValue: Self { self }
     public init(file: StaticString = #fileID, line: UInt = #line) {
@@ -211,28 +33,28 @@ public struct ScopedState<Key: ScopedStateKey> where Key.Value: Equatable {
             self._wrappedValue
         }
         set {
+            self._wrappedValue = newValue
             @Dependency(\._scopedValues) var values
             values[Key.self, scope: self.id] = newValue
-            self._wrappedValue = newValue
         }
     }
 }
 
-extension ScopedState: Equatable where Key.Value: Equatable {}
-extension ScopedState: Sendable where Key.Value: Sendable {}
+extension CreateScopedState: Equatable where Key.Value: Equatable {}
+extension CreateScopedState: Sendable where Key.Value: Sendable {}
 
-/// A reducer that propagates scoped state to its child reducer.
+/// A reducer that propagates a created scope to its child reducer.
 public struct WithScopedState<Key: ScopedStateKey, ParentState, ParentAction, Child: ReducerProtocol>: ReducerProtocol
 where Key.Value: Equatable, ParentState == Child.State, ParentAction == Child.Action
 {
     public init(
-        _ toScopedState: KeyPath<ParentState, ScopedState<Key>>,
+        _ toScopedState: KeyPath<ParentState, CreateScopedState<Key>>,
         @ReducerBuilder<Child.State, Child.Action> child: () -> Child
     ) {
         self.toScopedState = toScopedState
         self.child = child()
     }
-    private let toScopedState: KeyPath<Child.State, ScopedState<Key>>
+    private let toScopedState: KeyPath<Child.State, CreateScopedState<Key>>
     private let child: Child
     public func reduce(into state: inout Child.State, action: Child.Action) -> EffectTask<Child.Action> {
         self.child
@@ -241,12 +63,12 @@ where Key.Value: Equatable, ParentState == Child.State, ParentAction == Child.Ac
     }
 }
 
-/// A property wrapper that reads a value from scoped state.
+/// A property wrapper that reads from scoped state.
 ///
 /// The value is read from the scope when initialized. Any future
 /// changes to the value must be updated expliclty using `observeState`.
 @propertyWrapper
-public struct ScopedStateValue<Key: ScopedStateKey> where Key.Value: Equatable {
+public struct ScopedState<Key: ScopedStateKey> where Key.Value: Equatable {
     private let id: _ScopeIdentifier
     fileprivate var isObserving: Bool = false
     public var wrappedValue: Key.Value
@@ -262,26 +84,26 @@ public struct ScopedStateValue<Key: ScopedStateKey> where Key.Value: Equatable {
     }
 }
 
-/// Actions that manage scoped state.
-enum ScopedStateAction<Key: ScopedStateKey> {
-    case willChange(Key.Value)
-}
-
-extension ScopedStateValue: Equatable where Key.Value: Equatable {
+extension ScopedState: Equatable where Key.Value: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id && lhs.wrappedValue == rhs.wrappedValue
     }
 }
-extension ScopedStateValue: Sendable where Key.Value: Sendable {}
+extension ScopedState: Sendable where Key.Value: Sendable {}
+
+/// Actions that manage scoped state.
+public enum ScopedStateAction<Key: ScopedStateKey> {
+    case willChange(Key.Value)
+}
 
 extension ScopedStateAction: Equatable where Key.Value: Equatable {}
 extension ScopedStateAction: Sendable where Key.Value: Sendable {}
 
 extension ReducerProtocol {
     /// A higher-order reducer that monitors scoped state for changes and sends an action
-    /// back into the system to update local with the current value.
-    func observeState<Key: ScopedStateKey>(
-        _ toScopedState: WritableKeyPath<State, ScopedStateValue<Key>>,
+    /// back into the system to synchronize with the current value.
+    public func observeState<Key: ScopedStateKey>(
+        _ toScopedState: WritableKeyPath<State, ScopedState<Key>>,
         action toScopedAction: CasePath<Action, ScopedStateAction<Key>>
     ) -> some ReducerProtocol<State, Action>
     where Key.Value: Equatable
@@ -296,7 +118,7 @@ extension ReducerProtocol {
 
 struct _ObserveScopedState<Key: ScopedStateKey, ParentState, ParentAction, Base: ReducerProtocol>: ReducerProtocol
 where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Action {
-    let toScopedState: WritableKeyPath<ParentState, ScopedStateValue<Key>>
+    let toScopedState: WritableKeyPath<ParentState, ScopedState<Key>>
     let toScopedAction: CasePath<ParentAction, ScopedStateAction<Key>>
     let base: Base
     @Dependency(\._scopeId) var scopeId
@@ -332,8 +154,11 @@ where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Acti
 }
 
 extension DependencyValues {
-    /// Set the initial value for shared state. This is intended to be used for testing or previews.
-    mutating func sharedState<Key: ScopedStateKey>(
+    /// Set the initial value for scoped state.
+    ///
+    /// This is intended to be used for testing or previews where no parent
+    /// feature provides a scope with `@CreateScopedState`.
+    public mutating func createScopedState<Key: ScopedStateKey>(
         _ key: Key.Type,
         _ value: Key.Value,
         file: StaticString = #fileID,
@@ -342,10 +167,6 @@ extension DependencyValues {
         let scopeId = _ScopeIdentifier(file: file, line: line)
         self._scopeId = scopeId
         self._scopedValues[Key.self, scope: scopeId] = value
-    }
-    private struct Identifier: Hashable {
-        let file: String
-        let line: UInt
     }
 }
 
@@ -366,7 +187,6 @@ final class _ScopedValues: @unchecked Sendable {
     init(values: ScopeStorage = [:]) {
         self.storage = CurrentValueSubject(values)
     }
-
     subscript<Key: ScopedStateKey>(_ key: Key.Type, scope scopeId: _ScopeIdentifier) -> Key.Value {
         get {
             guard
