@@ -9,22 +9,22 @@ final class ScopedStateInitTests: XCTestCase {
         static var defaultValue: Int = 1
     }
 
-    struct Child: ReducerProtocol {
+    struct Child: Reducer {
         struct State: Equatable {
             @ChildState<CounterKey> var counter
         }
         typealias Action = Never
-        var body: some ReducerProtocolOf<Self> { EmptyReducer() }
+        var body: some ReducerOf<Self> { EmptyReducer() }
     }
 
     func testDefaultValue() async throws {
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 var child = Child.State()
             }
             typealias Action = Never
-            var body: some ReducerProtocolOf<Self> { EmptyReducer() }
+            var body: some ReducerOf<Self> { EmptyReducer() }
         }
         let store = TestStore(
             initialState: Parent.State(),
@@ -35,13 +35,13 @@ final class ScopedStateInitTests: XCTestCase {
     }
 
     func testWithDependencies() async throws {
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 var child = Child.State()
             }
             typealias Action = Never
-            var body: some ReducerProtocolOf<Self> { EmptyReducer() }
+            var body: some ReducerOf<Self> { EmptyReducer() }
         }
         let store = TestStore(
             initialState: Parent.State()
@@ -63,7 +63,7 @@ final class WithSharedStateTests: XCTestCase {
     }
 
     func testChildSharedState() async throws {
-        struct Child: ReducerProtocol {
+        struct Child: Reducer {
             struct State: Equatable {
                 @ChildState<CounterKey> var counter
                 var counterValue: [Int]?
@@ -72,7 +72,7 @@ final class WithSharedStateTests: XCTestCase {
                 case counter(SharedStateAction<CounterKey>)
                 case task
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .counter(.willChange(let value)):
@@ -85,7 +85,7 @@ final class WithSharedStateTests: XCTestCase {
                 .sharedState(\.$counter, action: /Action.counter)
             }
         }
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 var child1 = Child.State()
@@ -96,7 +96,7 @@ final class WithSharedStateTests: XCTestCase {
                 case child2(Child.Action)
                 case increment
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .child1, .child2:
@@ -141,7 +141,7 @@ final class WithSharedStateTests: XCTestCase {
     }
 
     func testPresentedChildSharedState() async throws {
-        struct Child: ReducerProtocol {
+        struct Child: Reducer {
             struct State: Equatable {
                 @ChildState<CounterKey> var counter
                 var counterValue: [Int]?
@@ -150,7 +150,7 @@ final class WithSharedStateTests: XCTestCase {
                 case counter(SharedStateAction<CounterKey>)
                 case task
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .counter(.willChange(let value)):
@@ -163,7 +163,7 @@ final class WithSharedStateTests: XCTestCase {
                 .sharedState(\.$counter, action: /Action.counter)
             }
         }
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 @PresentationState var child: Child.State?
@@ -173,7 +173,7 @@ final class WithSharedStateTests: XCTestCase {
                 case increment
                 case presentChild
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 WithParentState(\.$counter) {
                     Reduce { state, action in
                         switch action {
@@ -216,7 +216,7 @@ final class WithSharedStateTests: XCTestCase {
     }
 
     func testParentStateDependencyRead() async throws {
-        struct Child: ReducerProtocol {
+        struct Child: Reducer {
             struct State: Equatable {
                 var counterValue: [Int]?
             }
@@ -224,7 +224,7 @@ final class WithSharedStateTests: XCTestCase {
                 case update
             }
             @Dependency(\.parentState) var parentState
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .update:
@@ -235,7 +235,7 @@ final class WithSharedStateTests: XCTestCase {
                 }
             }
         }
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 var child1 = Child.State()
@@ -246,7 +246,7 @@ final class WithSharedStateTests: XCTestCase {
                 case child2(Child.Action)
                 case increment
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .child1, .child2:
@@ -282,7 +282,7 @@ final class WithSharedStateTests: XCTestCase {
     }
 
     func testParentStateDependencyWrite() async throws {
-        struct Child: ReducerProtocol {
+        struct Child: Reducer {
             struct State: Equatable {
                 let value: Int
             }
@@ -290,7 +290,7 @@ final class WithSharedStateTests: XCTestCase {
                 case updateParent
             }
             @Dependency(\.parentState) var parentState
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .updateParent:
@@ -300,7 +300,7 @@ final class WithSharedStateTests: XCTestCase {
                 }
             }
         }
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 var counterValue: [Int]?
@@ -312,7 +312,7 @@ final class WithSharedStateTests: XCTestCase {
                 case child1(Child.Action)
                 case child2(Child.Action)
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .child1, .child2:
@@ -351,7 +351,7 @@ final class WithSharedStateTests: XCTestCase {
     }
 
     func testParentStateDependencyRoundTrip() async throws {
-        struct Child: ReducerProtocol {
+        struct Child: Reducer {
             struct State: Equatable {
                 @ChildState<CounterKey> var counter
                 var counterValue: [Int]?
@@ -362,7 +362,7 @@ final class WithSharedStateTests: XCTestCase {
                 case task
             }
             @Dependency(\.parentState) var parentState
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .counter(.willChange(let value)):
@@ -378,7 +378,7 @@ final class WithSharedStateTests: XCTestCase {
                 .sharedState(\.$counter, action: /Action.counter)
             }
         }
-        struct Parent: ReducerProtocol {
+        struct Parent: Reducer {
             struct State: Equatable {
                 @ParentState<CounterKey> var counter
                 var counterValue: [Int]?
@@ -392,7 +392,7 @@ final class WithSharedStateTests: XCTestCase {
                 case increment
                 case task
             }
-            var body: some ReducerProtocolOf<Self> {
+            var body: some ReducerOf<Self> {
                 Reduce { state, action in
                     switch action {
                     case .child1, .child2:

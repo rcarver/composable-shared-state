@@ -29,7 +29,7 @@ in The Composable Architecture.
 struct CounterKey: SharedStateKey {
     static var defaultValue: Int = 4
 }
-struct ParentFeature: ReducerProtocol {
+struct ParentFeature: Reducer {
     struct State: Equatable {
         var child = ChildFeature.State()
         @ParentState<CounterKey> var counter
@@ -39,7 +39,7 @@ struct ParentFeature: ReducerProtocol {
         case increment
     }
     init() {}
-    var body: some ReducerProtocol<State, Action> {
+    var body: some Reducer<State, Action> {
         // ✅ Share `counter` with `child`
         WithParentState(\.$counter) {
             Scope(state: \.child, action: /Action.child) {
@@ -58,7 +58,7 @@ struct ParentFeature: ReducerProtocol {
         }
     }
 }
-struct ChildFeature: ReducerProtocol {
+struct ChildFeature: Reducer {
     struct State: Equatable {
         @ChildState<CounterKey> var counter
     }
@@ -66,7 +66,7 @@ struct ChildFeature: ReducerProtocol {
         case counter(SharedStateAction<CounterKey>)
         case task // An action to initialize shared state observation
     }
-    var body: some ReducerProtocol<State, Action> {
+    var body: some Reducer<State, Action> {
         Reduce { state, action in
             switch action {
             case .counter:
@@ -94,7 +94,7 @@ all children that participate in shared state.
 
 
 ```swift
-struct ParentFeature: ReducerProtocol {
+struct ParentFeature: Reducer {
     struct State: Equatable {
         var child = ChildFeature.State()
         @ParentState<CounterKey> var counter
@@ -105,7 +105,7 @@ struct ParentFeature: ReducerProtocol {
         case task // An action to initialize shared state observation
     }
     init() {}
-    var body: some ReducerProtocol<State, Action> {
+    var body: some Reducer<State, Action> {
         WithParentState(\.$counter) {
             Scope(state: \.child, action: /Action.child) {
                 ChildFeature()
@@ -125,7 +125,7 @@ struct ParentFeature: ReducerProtocol {
         }
     }
 }
-struct ChildFeature: ReducerProtocol {
+struct ChildFeature: Reducer {
     struct State: Equatable {
         var value = 100
     }
@@ -134,7 +134,7 @@ struct ChildFeature: ReducerProtocol {
     }
     // ✅ Get access to parent state
     @Dependency(\.parentState) var parentState
-    var body: some ReducerProtocol<State, Action> {
+    var body: some Reducer<State, Action> {
         Reduce { state, action in
             switch action {
             case .updateParent:
