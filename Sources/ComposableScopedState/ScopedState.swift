@@ -316,10 +316,14 @@ where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Acti
             return effects
         }
         state[keyPath: self.toScopedState].isObserving = true
+        let initialValue = state[keyPath: self.toScopedState].wrappedValue
         return .merge(
             effects,
             .run { send in
-                for await value in self.sharedValues.observe(Key.self, scope: self.scopeId) {
+                for await value in self.sharedValues
+                    .observe(Key.self, scope: self.scopeId)
+                    .drop(while: { $0 == initialValue })
+                {
                     await send(self.toScopedAction.embed(.willChange(value)))
                 }
             }
@@ -383,7 +387,6 @@ final class _ScopedValues: @unchecked Sendable {
         }
     }
     func observe<Key: ScopedStateKey>(_ key: Key.Type, scope scopeId: _ScopeIdentifier) -> AsyncStream<Key.Value> where Key.Value: Equatable {
-        let initialValue = self[Key.self, scope: scopeId]
         return AsyncStream(
             self.storage
                 .compactMap {
@@ -399,7 +402,6 @@ final class _ScopedValues: @unchecked Sendable {
                     return value
                 }
                 .removeDuplicates()
-                .drop(while: { $0 == initialValue })
                 .values
         )
     }

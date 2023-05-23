@@ -165,13 +165,17 @@ final class WithScopedStateTests: XCTestCase {
             $0.counter = 2
         }
         let task1 = await store.send(.child1(.task))
+        await store.receive(.child1(.counter(.willChange(2)))) {
+            $0.child1.counter = 2
+            $0.child1.counterValue = [1, 2]
+        }
         let task2 = await store.send(.child2(.task))
         await store.send(.increment) {
             $0.counter = 3
         }
         await store.receive(.child1(.counter(.willChange(3)))) {
             $0.child1.counter = 3
-            $0.child1.counterValue = [1, 3]
+            $0.child1.counterValue = [2, 3]
         }
         await task1.cancel()
         await task2.cancel()
