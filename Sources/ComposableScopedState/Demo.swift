@@ -2,7 +2,7 @@ import ComposableArchitecture
 import SwiftUI
 
 /// Define a key into the shared value, with a default value.
-struct CounterKey: ScopedStateKey {
+struct CounterKey: SharedStateKey {
     static var defaultValue: Int = 4
 }
 
@@ -12,7 +12,7 @@ struct ParentFeature: ReducerProtocol {
         var child2 = ChildFeature.State(name: "B")
         var child3 = ChildFeature.State(name: "C")
         @PresentationState var presentedChild: ChildFeature.State?
-        @CreateScopedState<CounterKey> var counter = 10
+        @ParentState<CounterKey> var counter = 10
     }
     enum Action: Equatable {
         case increment
@@ -24,7 +24,7 @@ struct ParentFeature: ReducerProtocol {
     }
     init() {}
     var body: some ReducerProtocol<State, Action> {
-        WithScopedState(\.$counter) {
+        WithParentState(\.$counter) {
             Scope(state: \.child1, action: /Action.child1) {
                 ChildFeature()
             }
@@ -60,10 +60,10 @@ struct ChildFeature: ReducerProtocol {
         var localCount: Int = 0
         var name: String
         var sum: Int = 0
-        @ScopedState<CounterKey> var sharedCount
+        @ChildState<CounterKey> var sharedCount
         init(name: String) {
             self.name = name
-            @ScopedState<CounterKey> var counter
+            @ChildState<CounterKey> var counter
         }
     }
     enum Action: Equatable {
@@ -71,7 +71,7 @@ struct ChildFeature: ReducerProtocol {
         case sum
         case task
     }
-    @ScopedState<CounterKey> var counter
+    @ChildState<CounterKey> var counter
     init() {}
     var body: some ReducerProtocol<State, Action> {
         Reduce { state, action in
@@ -87,7 +87,7 @@ struct ChildFeature: ReducerProtocol {
                 return .none
             }
         }
-        .observeState(\.$sharedCount, action: /Action.sharedCount)
+        .observeParentState(\.$sharedCount, action: /Action.sharedCount)
     }
 }
 
@@ -164,7 +164,7 @@ struct Parent_Previews: PreviewProvider {
                 ParentFeature()
             } withDependencies: {
                 // This default value will be used where a parent doesn't provide one.
-                $0.createScopedState(CounterKey.self, 100)
+                $0.parentState(CounterKey.self, 100)
             }
         )
     }
