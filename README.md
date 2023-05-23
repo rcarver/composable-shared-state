@@ -149,3 +149,7 @@ struct ChildFeature: Reducer {
     }
 }
 ```
+
+## License
+
+This library is released under the MIT license. See LICENSE for details.
