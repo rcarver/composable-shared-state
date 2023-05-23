@@ -3,6 +3,10 @@
 Tools to improve the ergonomics of sharing state from parent to child features
 in The Composable Architecture.
 
+## Status
+
+Experimental. Targeting TCA `prerelease/1.0` for development.
+
 ## Goals
 
 * An ergonomic way for child domains to stay in sync with data provided by a parent
