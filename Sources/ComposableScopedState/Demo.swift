@@ -64,7 +64,6 @@ struct ChildFeature: ReducerProtocol {
         init(name: String) {
             self.name = name
             @ScopedState<CounterKey> var counter
-            print("ChildFeature.init", name, counter, self.sharedCount)
         }
     }
     enum Action: Equatable {
