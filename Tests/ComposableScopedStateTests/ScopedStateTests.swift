@@ -276,7 +276,7 @@ final class WithScopedStateTests: XCTestCase {
         await task.cancel()
     }
 
-    func testScopedStateDependency() async throws {
+    func testScopedStateDependencyRead() async throws {
         struct Child: ReducerProtocol {
             struct State: Equatable {
                 var counterValue: [Int]?
@@ -291,7 +291,7 @@ final class WithScopedStateTests: XCTestCase {
                     switch action {
                     case .update:
                         @ScopedState<CounterKey> var counter
-                        state.counterValue = [self.counter, self.scopedState(CounterKey.self), counter]
+                        state.counterValue = [self.counter, self.scopedState[CounterKey.self], counter]
                         return .none
                     }
                 }
@@ -342,5 +342,97 @@ final class WithScopedStateTests: XCTestCase {
         await store.send(.child2(.update)) {
             $0.child2.counterValue = [1, 1, 1]
         }
+    }
+
+    func testScopedStateDependencyWrite() async throws {
+        struct Child: ReducerProtocol {
+            struct State: Equatable {
+                @ScopedState<CounterKey> var counter
+                var counterValue: Int?
+            }
+            enum Action: Equatable {
+                case counter(ScopedStateAction<CounterKey>)
+                case updateParent
+                case task
+            }
+            @Dependency(\.scopedState) var scopedState
+            var body: some ReducerProtocolOf<Self> {
+                Reduce { state, action in
+                    switch action {
+                    case .counter:
+                        return .none
+                    case .updateParent:
+                        self.scopedState[CounterKey.self] = state.counter * 100
+                        return .none
+                    case .task:
+                        return .none
+                    }
+                }
+                .observeState(\.$counter, action: /Action.counter)
+            }
+        }
+        struct Parent: ReducerProtocol {
+            struct State: Equatable {
+                @CreateScopedState<CounterKey> var counter
+                var child1 = Child.State()
+                var child2 = Child.State()
+            }
+            enum Action: Equatable {
+                case counter(ScopedStateAction<CounterKey>)
+                case child1(Child.Action)
+                case child2(Child.Action)
+                case increment
+            }
+            var body: some ReducerProtocolOf<Self> {
+                Reduce { state, action in
+                    switch action {
+                    case .child1, .child2:
+                        return .none
+                    case .counter:
+                        return .none
+                    case .increment:
+                        state.counter += 1
+                        return .none
+                    }
+                }
+                .observeState(\.$counter, action: /Action.counter)
+                WithScopedState(\.$counter) {
+                    Scope(state: \.child1, action: /Action.child1) {
+                        Child()
+                    }
+                }
+                Scope(state: \.child2, action: /Action.child2) {
+                    Child()
+                }
+            }
+        }
+        let store = TestStore(
+            initialState: Parent.State(),
+            reducer: Parent()
+        )
+        XCTAssertEqual(store.state.counter, 1)
+        let task = await store.send(.increment) {
+            $0.counter = 2
+        }
+        let task1 = await store.send(.child1(.task))
+        await store.receive(.child1(.counter(.willChange(2)))) {
+            $0.child1.counter = 2
+        }
+        let task2 = await store.send(.child2(.task))
+
+        await store.send(.child1(.updateParent))
+        await store.receive(.counter(.willChange(200))) {
+            $0.counter = 200
+        }
+        await store.receive(.child1(.counter(.willChange(200)))) {
+            $0.child1.counter = 200
+        }
+
+        XCTExpectFailure()
+        await store.send(.child2(.updateParent))
+
+        await task.cancel()
+        await task1.cancel()
+        await task2.cancel()
     }
 }
