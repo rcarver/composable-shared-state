@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "composable-scoped-state",
     platforms: [
-        .iOS(.v13),
+        .iOS(.v15),
 //        .macOS(.v10_15),
 //        .tvOS(.v13),
 //        .watchOS(.v6),

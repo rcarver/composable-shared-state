@@ -1,139 +1,346 @@
+import Combine
 import ComposableArchitecture
 import Foundation
 
-public protocol SharedStateKey: Sendable, Equatable {
+import SwiftUI
+
+/// Define a key into the shared value, with a default value.
+struct CounterKey: ScopedStateKey {
+    static var defaultValue: Int = 4
+}
+
+struct ParentFeature: ReducerProtocol {
+    struct State: Equatable {
+        var child1 = ChildFeature.State(name: "A")
+        var child2 = ChildFeature.State(name: "B")
+        var child3 = ChildFeature.State(name: "C")
+        @PresentationState var presentedChild: ChildFeature.State?
+        @ScopedState<CounterKey> var counter = 10
+    }
+    enum Action: Equatable {
+        case increment
+        case child1(ChildFeature.Action)
+        case child2(ChildFeature.Action)
+        case child3(ChildFeature.Action)
+        case presentChildButtonTapped
+        case presentedChild(PresentationAction<ChildFeature.Action>)
+    }
+    init() {}
+    var body: some ReducerProtocol<State, Action> {
+        WithScopedState(\.$counter) {
+            Scope(state: \.child1, action: /Action.child1) {
+                ChildFeature()
+            }
+            Scope(state: \.child2, action: /Action.child2) {
+                ChildFeature()
+            }
+            Reduce { state, action in
+                switch action {
+                case .increment:
+                    state.counter += 1
+                    return .none
+                case .child1, .child2, .child3:
+                    return .none
+                case .presentChildButtonTapped:
+                    state.presentedChild = ChildFeature.State(name: "P")
+                    return .none
+                case .presentedChild:
+                    return .none
+                }
+            }
+            .ifLet(\.$presentedChild, action: /Action.presentedChild) {
+                ChildFeature()
+            }
+        }
+        Scope(state: \.child3, action: /Action.child3) {
+            ChildFeature()
+        }
+    }
+}
+
+struct ChildFeature: ReducerProtocol {
+    struct State: Equatable {
+        var localCount: Int = 0
+        var name: String
+        var sum: Int = 0
+        @ScopedStateValue<CounterKey> var sharedCount
+        init(name: String) {
+            self.name = name
+            @ScopedStateValue<CounterKey> var counter
+            print("ChildFeature.init", name, counter, self.sharedCount)
+        }
+    }
+    enum Action: Equatable {
+        case sharedCount(ScopedStateAction<CounterKey>)
+        case sum
+        case task
+    }
+    @ScopedStateValue<CounterKey> var counter
+    init() {}
+    var body: some ReducerProtocol<State, Action> {
+        Reduce { state, action in
+            switch action {
+            case .sharedCount(.willChange(let newValue)):
+                print("ChildFeature.willChange", state.name, state.sharedCount, "=>", newValue)
+                return .none
+            case .sum:
+                state.sum = state.localCount + state.sharedCount
+                return .none
+            case .task:
+                state.localCount = .random(in: 1..<100)
+                return .none
+            }
+        }
+        .observeState(\.$sharedCount, action: /Action.sharedCount)
+    }
+}
+
+struct ParentView: View {
+    let store: StoreOf<ParentFeature>
+    var body: some View {
+        List {
+            WithViewStore(store, observe: { $0 }) { viewStore in
+                HStack {
+                    Button(action: { viewStore.send(.increment) }) {
+                        Text("Increment")
+                    }
+                    Spacer()
+                    Text(viewStore.counter.formatted())
+                }
+            }
+            Section {
+                ChildView(store: store.scope(state: \.child1, action: ParentFeature.Action.child1))
+            }
+            Section {
+                ChildView(store: store.scope(state: \.child2, action: ParentFeature.Action.child2))
+            }
+            Section {
+                ChildView(store: store.scope(state: \.child3, action: ParentFeature.Action.child3))
+            }
+        }
+        .safeAreaInset(edge: .bottom, content: {
+            Button("Present Child") {
+                ViewStore(store.stateless).send(.presentChildButtonTapped)
+            }
+        })
+        .sheet(
+            store: store.scope(state: \.$presentedChild, action: ParentFeature.Action.presentedChild)
+        ) { store in
+            List {
+                ChildView(store: store)
+            }
+        }
+    }
+}
+
+struct ChildView: View {
+    let store: StoreOf<ChildFeature>
+    var body: some View {
+        WithViewStore(store, observe: { $0 }) { viewStore in
+            HStack {
+                Text("Local Count")
+                Spacer()
+                Text(viewStore.localCount.formatted())
+            }
+            HStack {
+                Text("Shared Count")
+                Spacer()
+                Text(viewStore.sharedCount.formatted())
+            }
+            HStack {
+                Button(action: { viewStore.send(.sum) }) {
+                    Text("Sum Counts")
+                }
+                Spacer()
+                Text(viewStore.sum.formatted())
+            }
+        }
+        .task { await ViewStore(store.stateless).send(.task).finish() }
+    }
+}
+
+struct Parent_Previews: PreviewProvider {
+    static var previews: some View {
+        ParentView(
+            store: Store(
+                initialState: ParentFeature.State()
+            ) {
+                ParentFeature()
+            } withDependencies: {
+                // This default value will be used where a parent doesn't provide one.
+                $0.sharedState(CounterKey.self, 100)
+            }
+        )
+    }
+}
+
+
+
+
+///////////////////////////////////////////////
+
+
+public protocol ScopedStateKey: Sendable, Equatable {
     associatedtype Value: Sendable
     static var defaultValue: Value { get }
 }
 
-/// A property wrapper that can share its value.
+/// A property wrapper that can share its value within a defined scope.
 @propertyWrapper
-public struct SharedState<Key: SharedStateKey> where Key.Value: Equatable {
-    public var wrappedValue: Key.Value
+public struct ScopedState<Key: ScopedStateKey> where Key.Value: Equatable {
+    let id: _ScopeIdentifier
+    private var _wrappedValue: Key.Value
     public var projectedValue: Self { self }
-    public init(wrappedValue: Key.Value) {
-        self.wrappedValue = wrappedValue
+    public init(file: StaticString = #fileID, line: UInt = #line) {
+        @Dependency(\._scopeId) var scopeId
+        @Dependency(\._scopedValues) var values
+        self.init(
+            wrappedValue: values[Key.self, scope: scopeId],
+            file: file,
+            line: line
+        )
+    }
+    public init(wrappedValue value: Key.Value, file: StaticString = #fileID, line: UInt = #line) {
+        self.id = _ScopeIdentifier(file: file, line: line)
+        @Dependency(\._scopedValues) var values
+        values[Key.self, scope: self.id] = value
+        self._wrappedValue = value
+    }
+    public var wrappedValue: Key.Value {
+        get {
+            self._wrappedValue
+        }
+        set {
+            @Dependency(\._scopedValues) var values
+            values[Key.self, scope: self.id] = newValue
+            self._wrappedValue = newValue
+        }
     }
 }
 
-extension SharedState: Equatable where Key.Value: Equatable {}
-extension SharedState: Sendable where Key.Value: Sendable {}
+extension ScopedState: Equatable where Key.Value: Equatable {}
+extension ScopedState: Sendable where Key.Value: Sendable {}
 
-/// A reducer that propagates shared state to its child reducer.
-///
-/// The shared state is only available to children of this reducer. Other reducers accessing
-/// the same `SharedValueKey` key are unaffected.
-public struct WithSharedState<Key: SharedStateKey, ParentState, ParentAction, Child: ReducerProtocol>: ReducerProtocol
+/// A reducer that propagates scoped state to its child reducer.
+public struct WithScopedState<Key: ScopedStateKey, ParentState, ParentAction, Child: ReducerProtocol>: ReducerProtocol
 where Key.Value: Equatable, ParentState == Child.State, ParentAction == Child.Action
 {
     public init(
-        _ toSharedState: KeyPath<ParentState, SharedState<Key>>,
-        file: StaticString = #fileID,
-        line: UInt8 = #line,
+        _ toScopedState: KeyPath<ParentState, ScopedState<Key>>,
         @ReducerBuilder<Child.State, Child.Action> child: () -> Child
     ) {
-        self.id = Identifier(file: "\(file)", line: line)
-        self.toSharedState = toSharedState
+        self.toScopedState = toScopedState
         self.child = child()
     }
-    private struct Identifier: Hashable {
-        let file: String
-        let line: UInt8
-    }
-    private let id: Identifier
-    private let toSharedState: KeyPath<Child.State, SharedState<Key>>
+    private let toScopedState: KeyPath<Child.State, ScopedState<Key>>
     private let child: Child
     public func reduce(into state: inout Child.State, action: Child.Action) -> EffectTask<Child.Action> {
-        let value = state[keyPath: self.toSharedState].wrappedValue
-        return self.child
-            .transformDependency(\._sharedValues) {
-                $0 = $0.scope(
-                    id: self.id,
-                    key: Key.self,
-                    value: value
-                )
-            }
+        self.child
+            .dependency(\._scopeId, state[keyPath: self.toScopedState].id)
             .reduce(into: &state, action: action)
     }
 }
 
 /// A property wrapper that reads a value from shared state.
 @propertyWrapper
-public struct SharedStateValue<Key: SharedStateKey> where Key.Value: Equatable {
+public struct ScopedStateValue<Key: ScopedStateKey> where Key.Value: Equatable {
     fileprivate var isObserving: Bool = false
-    public fileprivate(set) var wrappedValue: Key.Value
-    public fileprivate(set) var projectedValue: Self {
+    fileprivate var scopeId: _ScopeIdentifier
+    fileprivate var _wrappedValue: Key.Value
+    public var projectedValue: Self {
         get { self }
         set { self = newValue }
     }
     public init() {
-        @Dependency(\._sharedValues) var sharedValues
-        self.wrappedValue = sharedValues[Key.self]
+        @Dependency(\._scopeId) var scopeId
+        @Dependency(\._scopedValues) var sharedValues
+        self.scopeId = scopeId
+        self._wrappedValue = sharedValues[Key.self, scope: scopeId]
+    }
+    public var wrappedValue: Key.Value {
+        get {
+            @Dependency(\._scopeId) var scopeId
+            switch scopeId {
+            case .default:
+                return self._wrappedValue
+            case self.scopeId:
+                return self._wrappedValue
+            default:
+                @Dependency(\._scopedValues) var sharedValues
+                return sharedValues[Key.self, scope: scopeId]
+            }
+        }
+        set {
+            @Dependency(\._scopeId) var scopeId
+            self.scopeId = scopeId
+            self._wrappedValue = newValue
+        }
     }
 }
 
 /// Actions sent when shared state changes.
-enum SharedStateAction<Key: SharedStateKey> {
+enum ScopedStateAction<Key: ScopedStateKey> {
     /// Received by the reducer just before the value changes. You
     /// may compare the value in `State` to this value.
     case willChange(Key.Value)
 }
 
-extension SharedStateValue: Equatable where Key.Value: Equatable {
+extension ScopedStateValue: Equatable where Key.Value: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.wrappedValue == rhs.wrappedValue
     }
 }
-extension SharedStateValue: Sendable where Key.Value: Sendable {}
+extension ScopedStateValue: Sendable where Key.Value: Sendable {}
 
-extension SharedStateAction: Equatable where Key.Value: Equatable {}
-extension SharedStateAction: Sendable where Key.Value: Sendable {}
+extension ScopedStateAction: Equatable where Key.Value: Equatable {}
+extension ScopedStateAction: Sendable where Key.Value: Sendable {}
 
 extension ReducerProtocol {
-    /// A higher-order reducer that monitors shared state for changes and sends an action
-    /// back into the system to update state with the current value.
-    func observeSharedState<Key: SharedStateKey>(
-        _ toSharedState: WritableKeyPath<State, SharedStateValue<Key>>,
-        action toSharedAction: CasePath<Action, SharedStateAction<Key>>
+    /// A higher-order reducer that monitors scoped state for changes and sends an action
+    /// back into the system to update local with the current value.
+    func observeState<Key: ScopedStateKey>(
+        _ toScopedState: WritableKeyPath<State, ScopedStateValue<Key>>,
+        action toScopedAction: CasePath<Action, ScopedStateAction<Key>>
     ) -> some ReducerProtocol<State, Action>
     where Key.Value: Equatable
     {
-        _ObserveSharedState(
-            toSharedState: toSharedState,
-            toSharedAction: toSharedAction,
+        _ObserveScopedState(
+            toScopedState: toScopedState,
+            toScopedAction: toScopedAction,
             base: self
         )
     }
 }
 
-struct _ObserveSharedState<Key: SharedStateKey, ParentState, ParentAction, Base: ReducerProtocol>: ReducerProtocol
+struct _ObserveScopedState<Key: ScopedStateKey, ParentState, ParentAction, Base: ReducerProtocol>: ReducerProtocol
 where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Action {
-    let toSharedState: WritableKeyPath<ParentState, SharedStateValue<Key>>
-    let toSharedAction: CasePath<ParentAction, SharedStateAction<Key>>
+    let toScopedState: WritableKeyPath<ParentState, ScopedStateValue<Key>>
+    let toScopedAction: CasePath<ParentAction, ScopedStateAction<Key>>
     let base: Base
-    @Dependency(\._sharedValues) var sharedValues
+    @Dependency(\._scopeId) var scopeId
+    @Dependency(\._scopedValues) var sharedValues
     func reduce(into state: inout ParentState, action: ParentAction) -> EffectTask<ParentAction> {
         let effects = self.base.reduce(into: &state, action: action)
-        switch self.toSharedAction.extract(from: action) {
+        switch self.toScopedAction.extract(from: action) {
         case .willChange(let value):
-            state[keyPath: toSharedState].wrappedValue = value
+            state[keyPath: toScopedState].wrappedValue = value
         case .none:
             break
         }
         guard
-            !state[keyPath: self.toSharedState].isObserving
+            !state[keyPath: self.toScopedState].isObserving
         else {
             return effects
         }
-        state[keyPath: self.toSharedState].isObserving = true
-        let initialValue = state[keyPath: self.toSharedState].wrappedValue
+        state[keyPath: self.toScopedState].isObserving = true
+        let initialValue = state[keyPath: self.toScopedState].wrappedValue
         return .merge(
             effects,
             .run { send in
                 var firstValue = true
-                for await value in self.sharedValues.observe(Key.self) {
+                for await value in self.sharedValues.observe(Key.self, scope: self.scopeId) {
                     if !firstValue || (firstValue && value != initialValue) {
-                        await send(self.toSharedAction.embed(.willChange(value)))
+                        await send(self.toScopedAction.embed(.willChange(value)))
                         firstValue = false
                     }
                 }
@@ -142,69 +349,42 @@ where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Acti
     }
 }
 
-extension ReducerProtocol {
-    func shareState<Key: SharedStateKey>(
-        from fromSharedValue: KeyPath<State, SharedState<Key>>,
-        to toSharedValue: WritableKeyPath<State, SharedStateValue<Key>>
-    ) -> some ReducerProtocol<State, Action>
-    where Key.Value: Equatable
-    {
-        Reduce { state, action in
-            state[keyPath: toSharedValue].wrappedValue = state[keyPath: fromSharedValue].wrappedValue
-            return self.reduce(into: &state, action: action)
-        }
-    }
-}
-
 extension DependencyValues {
     /// Set the initial value for shared state. This is intended to be used for testing or previews.
-    mutating func sharedState<Key: SharedStateKey>(_ key: Key.Type, _ value: Key.Value, file: StaticString = #fileID, line: UInt8 = #line) {
-        self._sharedValues = self._sharedValues.scope(
-            id: Identifier(file: "\(file)", line: line),
-            key: key,
-            value: value
-        )
+    mutating func sharedState<Key: ScopedStateKey>(_ key: Key.Type, _ value: Key.Value, file: StaticString = #fileID, line: UInt = #line) {
+        let scopeId = _ScopeIdentifier(file: file, line: line)
+        self._scopeId = scopeId
+        self._scopedValues[Key.self, scope: scopeId] = value
     }
     private struct Identifier: Hashable {
         let file: String
-        let line: UInt8
+        let line: UInt
     }
 }
 
-import Combine
+enum _ScopeIdentifier: Hashable {
+    init(file: StaticString = #fileID, line: UInt = #line) {
+        self = .static(file: "\(file)", line: line)
+    }
+    case `default`
+    case `static`(file: String, line: UInt)
+}
 
-private var _scopedSharedValues = [ AnyHashable : _SharedValues ]()
+final class _ScopedValues: @unchecked Sendable {
+    typealias ValueStorage = [ ObjectIdentifier : Any ]
+    typealias ScopeStorage = [ _ScopeIdentifier : ValueStorage ]
 
-struct _SharedValues: @unchecked Sendable {
+    private var storage: CurrentValueSubject<ScopeStorage, Never>
 
-    init(id: AnyHashable, values: Storage = [:]) {
-        self.id = id
+    init(values: ScopeStorage = [:]) {
         self.storage = CurrentValueSubject(values)
     }
 
-    typealias Storage = [ ObjectIdentifier : Any ]
-    private let id: AnyHashable
-    private var storage: CurrentValueSubject<Storage, Never>
-
-    /// Create a copy with value.
-    func scope<Key: SharedStateKey>(id: AnyHashable, key: Key.Type, value: Key.Value) -> _SharedValues {
-        var values = self.storage.value
-        values[ObjectIdentifier(key)] = value
-        if let scope = _scopedSharedValues[id] {
-            scope.storage.value = values
-            return scope
-        } else {
-            let scope = _SharedValues(id: id, values: values)
-            _scopedSharedValues[id] = scope
-            return scope
-        }
-    }
-
-    /// Read and write to a shared value.
-    subscript<Key: SharedStateKey>(_ key: Key.Type) -> Key.Value {
+    subscript<Key: ScopedStateKey>(_ key: Key.Type, scope scopeId: _ScopeIdentifier) -> Key.Value {
         get {
             guard
-                let value = self.storage.value[ObjectIdentifier(key)],
+                let values = self.storage.value[scopeId],
+                let value = values[ObjectIdentifier(key)],
                 let value = value as? Key.Value
             else {
                 return key.defaultValue
@@ -212,17 +392,22 @@ struct _SharedValues: @unchecked Sendable {
             return value
         }
         set {
-            self.storage.value[ObjectIdentifier(key)] = newValue
+            if self.storage.value[scopeId] == nil {
+                self.storage.value[scopeId] = [ ObjectIdentifier(key) : newValue ]
+            } else {
+                self.storage.value[scopeId]![ObjectIdentifier(key)] = newValue
+            }
         }
     }
-
-    /// Observe changes to a shared value.
-    func observe<Key: SharedStateKey>(_ key: Key.Type) -> AsyncStream<Key.Value> where Key.Value: Equatable {
+    func observe<Key: ScopedStateKey>(_ key: Key.Type, scope scopeId: _ScopeIdentifier) -> AsyncStream<Key.Value> where Key.Value: Equatable {
         AsyncStream(
             self.storage
-                .map { storage in
+                .compactMap {
+                    $0[scopeId]
+                }
+                .map { values in
                     guard
-                        let value = storage[ObjectIdentifier(key)],
+                        let value = values[ObjectIdentifier(key)],
                         let value = value as? Key.Value
                     else {
                         return key.defaultValue
@@ -235,13 +420,27 @@ struct _SharedValues: @unchecked Sendable {
     }
 }
 
-extension _SharedValues: DependencyKey {
-    static let liveValue = _SharedValues(id: "root")
+extension _ScopeIdentifier: DependencyKey {
+    static let liveValue = Self.default
+    static let testValue = Self.default
 }
 
 extension DependencyValues {
-    var _sharedValues: _SharedValues {
-        get { self[_SharedValues.self] }
-        set { self[_SharedValues.self] = newValue }
+    var _scopeId: _ScopeIdentifier {
+        get { self[_ScopeIdentifier.self] }
+        set { self[_ScopeIdentifier.self] = newValue }
     }
 }
+
+extension _ScopedValues: DependencyKey {
+    static let liveValue = _ScopedValues()
+    static let testValue = _ScopedValues()
+}
+
+extension DependencyValues {
+    var _scopedValues: _ScopedValues {
+        get { self[_ScopedValues.self] }
+        set { self[_ScopedValues.self] = newValue }
+    }
+}
+
