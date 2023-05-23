@@ -1,7 +1,6 @@
 # ComposableSharedState
 
-Tools to improve the ergonomics of sharing state from parent to child features
-in The Composable Architecture.
+Tools to share state from parent to child features in [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
 
 ## Status
 
