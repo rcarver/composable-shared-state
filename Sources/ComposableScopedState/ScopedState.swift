@@ -2,12 +2,15 @@ import Combine
 import ComposableArchitecture
 import Foundation
 
+/// A key for sharing state.
+///
+/// The key defines the type and default value.
 public protocol ScopedStateKey: Sendable, Equatable {
     associatedtype Value: Sendable
     static var defaultValue: Value { get }
 }
 
-/// A property wrapper that can share its value within a defined scope.
+/// A property wrapper that creates a scope in which a value can be shared.
 @propertyWrapper
 public struct CreateScopedState<Key: ScopedStateKey> where Key.Value: Equatable {
     fileprivate let id: _ScopeIdentifier
@@ -227,6 +230,14 @@ final class _ScopedValues: @unchecked Sendable {
     }
 }
 
+public struct ScopedStateReader: Sendable {
+    public func callAsFunction<Key: ScopedStateKey>(_ key: Key.Type) -> Key.Value {
+        @Dependency(\._scopeId) var scopeId
+        @Dependency(\._scopedValues) var sharedValues
+        return sharedValues[Key.self, scope: scopeId]
+    }
+}
+
 extension _ScopeIdentifier: DependencyKey {
     static let liveValue = Self.default
     static let testValue = Self.default
@@ -246,7 +257,20 @@ extension _ScopedValues: DependencyKey {
 
 extension DependencyValues {
     var _scopedValues: _ScopedValues {
-        get { self[_ScopedValues.self] }
-        set { self[_ScopedValues.self] = newValue }
+        self[_ScopedValues.self]
+    }
+}
+
+extension ScopedStateReader: DependencyKey {
+    public static let testValue = Self()
+    public static let liveValue = Self()
+}
+
+extension DependencyValues {
+    /// Access scoped state as a dependency.
+    ///
+    /// This may be preferable when the value is only needed inside a reducer.
+    public var scopedState: ScopedStateReader {
+        self[ScopedStateReader.self]
     }
 }
