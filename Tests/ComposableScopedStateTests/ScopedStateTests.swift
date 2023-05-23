@@ -176,4 +176,80 @@ final class WithScopedStateTests: XCTestCase {
         await task1.cancel()
         await task2.cancel()
     }
+
+    func testPresentation() async throws {
+        struct Child: ReducerProtocol {
+            struct State: Equatable {
+                @ScopedStateValue<CounterKey> var counter
+                var counterValue: [Int]?
+            }
+            enum Action: Equatable {
+                case counter(ScopedStateAction<CounterKey>)
+                case task
+            }
+            var body: some ReducerProtocolOf<Self> {
+                Reduce { state, action in
+                    switch action {
+                    case .counter(.willChange(let value)):
+                        state.counterValue = [state.counter, value]
+                        return .none
+                    case .task:
+                        return .none
+                    }
+                }
+                .observeState(\.$counter, action: /Action.counter)
+            }
+        }
+        struct Parent: ReducerProtocol {
+            struct State: Equatable {
+                @ScopedState<CounterKey> var counter
+                @PresentationState var child: Child.State?
+            }
+            enum Action: Equatable {
+                case child(PresentationAction<Child.Action>)
+                case increment
+                case presentChild
+            }
+            var body: some ReducerProtocolOf<Self> {
+                WithScopedState(\.$counter) {
+                    Reduce { state, action in
+                        switch action {
+                        case .child:
+                            return .none
+                        case .increment:
+                            state.counter += 1
+                            return .none
+                        case .presentChild:
+                            state.child = Child.State()
+                            return .none
+                        }
+                    }
+                    .ifLet(\.$child, action: /Action.child) {
+                        Child()
+                    }
+                }
+            }
+        }
+        let store = TestStore(
+            initialState: Parent.State(),
+            reducer: Parent()
+        )
+        XCTAssertEqual(store.state.counter, 1)
+        await store.send(.increment) {
+            $0.counter = 2
+        }
+        await store.send(.presentChild) {
+            $0.child = Child.State()
+            $0.child?.counter = 2
+        }
+        let task = await store.send(.child(.presented(.task)))
+        await store.send(.increment) {
+            $0.counter = 3
+        }
+        await store.receive(.child(.presented(.counter(.willChange(3))))) {
+            $0.child?.counter = 3
+            $0.child?.counterValue = [2, 3]
+       }
+        await task.cancel()
+    }
 }
