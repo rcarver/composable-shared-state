@@ -18,7 +18,7 @@ final class ScopedStateInitTests: XCTestCase {
         var body: some ReducerProtocolOf<Self> { EmptyReducer() }
     }
 
-    func testInitDefaultValue() async throws {
+    func testDefaultValue() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
                 @ScopedState<CounterKey> var counter
@@ -35,7 +35,7 @@ final class ScopedStateInitTests: XCTestCase {
         XCTAssertEqual(store.state.child.counter, 1)
     }
 
-    func testInitWithValue() async throws {
+    func testWithValue() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
                 @ScopedState<CounterKey> var counter = 2
@@ -52,7 +52,7 @@ final class ScopedStateInitTests: XCTestCase {
         XCTAssertEqual(store.state.child.counter, 1)
     }
 
-    func testInitWithDependencies() async throws {
+    func testWithDependencies() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
                 @ScopedState<CounterKey> var counter
@@ -72,7 +72,7 @@ final class ScopedStateInitTests: XCTestCase {
         XCTAssertEqual(store.state.child.counter, 2)
     }
 
-    func testInitWithValueOverridesDepenency() async throws {
+    func testWithValueOverridesDependency() async throws {
         struct Parent: ReducerProtocol {
             struct State: Equatable {
                 @ScopedState<CounterKey> var counter = 3
@@ -100,74 +100,6 @@ final class WithScopedStateTests: XCTestCase {
         static var defaultValue: Int = 1
     }
 
-    func testWithScopedValue() async throws {
-        struct Child: ReducerProtocol {
-            struct State: Equatable {
-                @ScopedStateValue<CounterKey> var counter
-                var counterValue: Int?
-            }
-            enum Action {
-                case update
-            }
-            var body: some ReducerProtocolOf<Self> {
-                Reduce { state, action in
-                    switch action {
-                    case .update:
-                        state.counterValue = state.counter
-                        return .none
-                    }
-                }
-            }
-        }
-        struct Parent: ReducerProtocol {
-            struct State: Equatable {
-                @ScopedState<CounterKey> var counter
-                var child1 = Child.State()
-                var child2 = Child.State()
-            }
-            enum Action {
-                case child1(Child.Action)
-                case child2(Child.Action)
-                case increment
-            }
-            var body: some ReducerProtocolOf<Self> {
-                Reduce { state, action in
-                    switch action {
-                    case .child1, .child2:
-                        return .none
-                    case .increment:
-                        state.counter += 1
-                        return .none
-                    }
-                }
-                WithScopedState(\.$counter) {
-                    Scope(state: \.child1, action: /Action.child1) {
-                        Child()
-                    }
-                }
-                Scope(state: \.child2, action: /Action.child2) {
-                    Child()
-                }
-            }
-        }
-        let store = TestStore(
-            initialState: Parent.State(),
-            reducer: Parent()
-        )
-        XCTAssertEqual(store.state.counter, 1)
-        XCTAssertEqual(store.state.child1.counter, 1)
-        XCTAssertEqual(store.state.child2.counter, 1)
-        await store.send(.increment) {
-            $0.counter = 2
-        }
-        await store.send(.child1(.update)) {
-            $0.child1.counterValue = 2
-        }
-        await store.send(.child2(.update)) {
-            $0.child2.counterValue = 1
-        }
-    }
-
     func testObserveState() async throws {
         struct Child: ReducerProtocol {
             struct State: Equatable {
@@ -176,16 +108,15 @@ final class WithScopedStateTests: XCTestCase {
             }
             enum Action: Equatable {
                 case counter(ScopedStateAction<CounterKey>)
-                case update
+                case task
             }
             var body: some ReducerProtocolOf<Self> {
                 Reduce { state, action in
                     switch action {
-                    case .counter(.changed(let value)):
+                    case .counter(.willChange(let value)):
                         state.counterValue = [state.counter, value]
                         return .none
-                    case .update:
-                        state.counterValue = [state.counter]
+                    case .task:
                         return .none
                     }
                 }
@@ -233,18 +164,14 @@ final class WithScopedStateTests: XCTestCase {
         await store.send(.increment) {
             $0.counter = 2
         }
-        let task1 = await store.send(.child1(.update)) {
-            $0.child1.counterValue = [2]
-        }
-        let task2 = await store.send(.child2(.update)) {
-            $0.child2.counterValue = [1]
-        }
+        let task1 = await store.send(.child1(.task))
+        let task2 = await store.send(.child2(.task))
         await store.send(.increment) {
             $0.counter = 3
         }
-        await store.receive(.child1(.counter(.changed(3)))) {
+        await store.receive(.child1(.counter(.willChange(3)))) {
             $0.child1.counter = 3
-            $0.child1.counterValue = [3, 3]
+            $0.child1.counterValue = [1, 3]
         }
         await task1.cancel()
         await task2.cancel()

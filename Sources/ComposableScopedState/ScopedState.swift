@@ -80,8 +80,8 @@ struct ChildFeature: ReducerProtocol {
     var body: some ReducerProtocol<State, Action> {
         Reduce { state, action in
             switch action {
-            case .sharedCount(.changed(let newValue)):
-                print("ChildFeature.changed", state.name, state.sharedCount, "=>", newValue)
+            case .sharedCount(.willChange(let newValue)):
+                print("ChildFeature.willChange", state.name, state.sharedCount, "=>", newValue)
                 return .none
             case .sum:
                 state.sum = state.localCount + state.sharedCount
@@ -241,12 +241,15 @@ where Key.Value: Equatable, ParentState == Child.State, ParentAction == Child.Ac
     }
 }
 
-/// A property wrapper that reads a value from shared state.
+/// A property wrapper that reads a value from scoped state.
+///
+/// The value is read from the scope when initialized. Any future
+/// changes to the value must be updated expliclty using `observeState`.
 @propertyWrapper
 public struct ScopedStateValue<Key: ScopedStateKey> where Key.Value: Equatable {
-    let id: _ScopeIdentifier
+    private let id: _ScopeIdentifier
     fileprivate var isObserving: Bool = false
-    private var _wrappedValue: Key.Value?
+    public var wrappedValue: Key.Value
     public var projectedValue: Self {
         get { self }
         set { self = newValue }
@@ -254,37 +257,19 @@ public struct ScopedStateValue<Key: ScopedStateKey> where Key.Value: Equatable {
     public init(file: StaticString = #file, line: UInt = #line) {
         self.id = _ScopeIdentifier(file: file, line: line)
         @Dependency(\._scopeId) var scopeId
-        switch scopeId {
-        case .default:
-            self._wrappedValue = nil
-        case .static:
-            @Dependency(\._scopedValues) var sharedValues
-            self._wrappedValue = sharedValues[Key.self, scope: scopeId]
-        }
-    }
-    public var wrappedValue: Key.Value {
-        get {
-            if let value = self._wrappedValue {
-                return value
-            }
-            @Dependency(\._scopeId) var scopeId
-            @Dependency(\._scopedValues) var sharedValues
-            return sharedValues[Key.self, scope: scopeId]
-        }
-        set {
-            self._wrappedValue = newValue
-        }
+        @Dependency(\._scopedValues) var sharedValues
+        self.wrappedValue = sharedValues[Key.self, scope: scopeId]
     }
 }
 
 /// Actions that manage scoped state.
 enum ScopedStateAction<Key: ScopedStateKey> {
-    case changed(Key.Value)
+    case willChange(Key.Value)
 }
 
 extension ScopedStateValue: Equatable where Key.Value: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.id == rhs.id && lhs._wrappedValue == rhs._wrappedValue
+        lhs.id == rhs.id && lhs.wrappedValue == rhs.wrappedValue
     }
 }
 extension ScopedStateValue: Sendable where Key.Value: Sendable {}
@@ -319,9 +304,9 @@ where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Acti
     func reduce(into state: inout ParentState, action: ParentAction) -> EffectTask<ParentAction> {
         let effects: Effect<Action>
         switch self.toScopedAction.extract(from: action) {
-        case .changed(let value):
-            state[keyPath: toScopedState].wrappedValue = value
+        case .willChange(let value):
             effects = self.base.reduce(into: &state, action: action)
+            state[keyPath: toScopedState].wrappedValue = value
         case .none:
             effects = self.base.reduce(into: &state, action: action)
         }
@@ -335,7 +320,7 @@ where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Acti
             effects,
             .run { send in
                 for await value in self.sharedValues.observe(Key.self, scope: self.scopeId) {
-                    await send(self.toScopedAction.embed(.changed(value)))
+                    await send(self.toScopedAction.embed(.willChange(value)))
                 }
             }
         )
@@ -344,7 +329,12 @@ where Key.Value: Equatable, ParentState == Base.State, ParentAction == Base.Acti
 
 extension DependencyValues {
     /// Set the initial value for shared state. This is intended to be used for testing or previews.
-    mutating func sharedState<Key: ScopedStateKey>(_ key: Key.Type, _ value: Key.Value, file: StaticString = #fileID, line: UInt = #line) {
+    mutating func sharedState<Key: ScopedStateKey>(
+        _ key: Key.Type,
+        _ value: Key.Value,
+        file: StaticString = #fileID,
+        line: UInt = #line
+    ) {
         let scopeId = _ScopeIdentifier(file: file, line: line)
         self._scopeId = scopeId
         self._scopedValues[Key.self, scope: scopeId] = value
@@ -438,4 +428,3 @@ extension DependencyValues {
         set { self[_ScopedValues.self] = newValue }
     }
 }
-
