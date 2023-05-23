@@ -181,7 +181,7 @@ final class WithScopedStateTests: XCTestCase {
             var body: some ReducerProtocolOf<Self> {
                 Reduce { state, action in
                     switch action {
-                    case .counter(.willChange(let value)):
+                    case .counter(.changed(let value)):
                         state.counterValue = [state.counter, value]
                         return .none
                     case .update:
@@ -239,15 +239,13 @@ final class WithScopedStateTests: XCTestCase {
         let task2 = await store.send(.child2(.update)) {
             $0.child2.counterValue = [1]
         }
-        print("----")
         await store.send(.increment) {
             $0.counter = 3
         }
-        await store.receive(.child1(.counter(.willChange(3)))) {
+        await store.receive(.child1(.counter(.changed(3)))) {
             $0.child1.counter = 3
-            $0.child1.counterValue = [2, 3]
+            $0.child1.counterValue = [3, 3]
         }
-
         await task1.cancel()
         await task2.cancel()
     }
