@@ -11,12 +11,7 @@ let package = Package(
 //        .watchOS(.v6),
     ],
     products: [
-        .library(
-            name: "ComposableSharedState",
-            targets: [
-                "ComposableSharedState"
-            ]
-        ),
+        .library(name: "ComposableSharedState", targets: ["ComposableSharedState"]),
     ],
     dependencies: [
         .package(
