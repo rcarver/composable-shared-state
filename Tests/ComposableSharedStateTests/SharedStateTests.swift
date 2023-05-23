@@ -1,6 +1,6 @@
 import XCTest
 import ComposableArchitecture
-import ComposableScopedState
+import ComposableSharedState
 
 @MainActor
 final class ScopedStateInitTests: XCTestCase {

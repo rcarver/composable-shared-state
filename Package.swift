@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "composable-scoped-state",
+    name: "composable-shared-state",
     platforms: [
         .iOS(.v15),
 //        .macOS(.v10_15),
@@ -12,9 +12,9 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "ComposableScopedState",
+            name: "ComposableSharedState",
             targets: [
-                "ComposableScopedState"
+                "ComposableSharedState"
             ]
         ),
     ],
@@ -26,13 +26,13 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "ComposableScopedState",
+            name: "ComposableSharedState",
             dependencies: [
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
             ]
         ),
         .testTarget(
-            name: "ComposableScopedStateTests",
-            dependencies: ["ComposableScopedState"]),
+            name: "ComposableSharedStateTests",
+            dependencies: ["ComposableSharedState"]),
     ]
 )
