@@ -12,13 +12,14 @@ struct ParentFeature: ReducerProtocol {
         var child2 = ChildFeature.State(name: "B")
         var child3 = ChildFeature.State(name: "C")
         @PresentationState var presentedChild: ChildFeature.State?
-        @ParentState<CounterKey> var counter = 10
+        @ParentState<CounterKey> var counter
     }
     enum Action: Equatable {
-        case increment
         case child1(ChildFeature.Action)
         case child2(ChildFeature.Action)
         case child3(ChildFeature.Action)
+        case counter(SharedStateAction<CounterKey>)
+        case increment
         case presentChildButtonTapped
         case presentedChild(PresentationAction<ChildFeature.Action>)
     }
@@ -33,10 +34,12 @@ struct ParentFeature: ReducerProtocol {
             }
             Reduce { state, action in
                 switch action {
+                case .child1, .child2, .child3:
+                    return .none
+                case .counter:
+                    return .none
                 case .increment:
                     state.counter += 1
-                    return .none
-                case .child1, .child2, .child3:
                     return .none
                 case .presentChildButtonTapped:
                     state.presentedChild = ChildFeature.State(name: "P")
@@ -45,6 +48,7 @@ struct ParentFeature: ReducerProtocol {
                     return .none
                 }
             }
+            .sharedState(\.$counter, action: /Action.counter)
             .ifLet(\.$presentedChild, action: /Action.presentedChild) {
                 ChildFeature()
             }
@@ -60,34 +64,37 @@ struct ChildFeature: ReducerProtocol {
         var localCount: Int = 0
         var name: String
         var sum: Int = 0
-        @ChildState<CounterKey> var sharedCount
+        @ChildState<CounterKey> var counter
         init(name: String) {
             self.name = name
-            @ChildState<CounterKey> var counter
         }
     }
     enum Action: Equatable {
-        case sharedCount(ScopedStateAction<CounterKey>)
+        case counter(SharedStateAction<CounterKey>)
+        case shareSumButtonTapped
         case sum
         case task
     }
-    @ChildState<CounterKey> var counter
     init() {}
+    @Dependency(\.parentState) var parentState
     var body: some ReducerProtocol<State, Action> {
         Reduce { state, action in
             switch action {
-            case .sharedCount(.willChange(let newValue)):
-                print("ChildFeature.willChange", state.name, state.sharedCount, "=>", newValue)
+            case .counter(.willChange(let newValue)):
+                print("ChildFeature.willChange", state.name, state.counter, "=>", newValue)
+                return .none
+            case .shareSumButtonTapped:
+                self.parentState[CounterKey.self] = state.sum
                 return .none
             case .sum:
-                state.sum = state.localCount + state.sharedCount
+                state.sum = state.localCount + state.counter
                 return .none
             case .task:
                 state.localCount = .random(in: 1..<100)
                 return .none
             }
         }
-        .observeParentState(\.$sharedCount, action: /Action.sharedCount)
+        .sharedState(\.$counter, action: /Action.counter)
     }
 }
 
@@ -139,16 +146,19 @@ struct ChildView: View {
                 Text(viewStore.localCount.formatted())
             }
             HStack {
-                Text("Shared Count")
+                Text("Parent Count")
                 Spacer()
-                Text(viewStore.sharedCount.formatted())
+                Text(viewStore.counter.formatted())
             }
             HStack {
                 Button(action: { viewStore.send(.sum) }) {
-                    Text("Sum Counts")
+                    Text("Update Sum")
                 }
                 Spacer()
                 Text(viewStore.sum.formatted())
+            }
+            Button("Share Sum to Parent") {
+                viewStore.send(.shareSumButtonTapped)
             }
         }
         .task { await ViewStore(store.stateless).send(.task).finish() }
@@ -163,8 +173,8 @@ struct Parent_Previews: PreviewProvider {
             ) {
                 ParentFeature()
             } withDependencies: {
-                // This default value will be used where a parent doesn't provide one.
-                $0.parentState(CounterKey.self, 100)
+                // Sets a new default value.
+                $0.sharedState(CounterKey.self, 100)
             }
         )
     }
