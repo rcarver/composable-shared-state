@@ -6,7 +6,7 @@ struct CounterKey: SharedStateKey {
     static var defaultValue: Int = 4
 }
 
-struct ParentFeature: Reducer {
+struct ParentFeature: ReducerProtocol {
     struct State: Equatable {
         var child1 = ChildFeature.State(name: "A")
         var child2 = ChildFeature.State(name: "B")
@@ -24,7 +24,7 @@ struct ParentFeature: Reducer {
         case presentedChild(PresentationAction<ChildFeature.Action>)
     }
     init() {}
-    var body: some Reducer<State, Action> {
+    var body: some ReducerProtocolOf<Self> {
         WithParentState(\.$counter) {
             Scope(state: \.child1, action: /Action.child1) {
                 ChildFeature()
@@ -59,7 +59,7 @@ struct ParentFeature: Reducer {
     }
 }
 
-struct ChildFeature: Reducer {
+struct ChildFeature: ReducerProtocol {
     struct State: Equatable {
         var localCount: Int = 0
         var name: String
@@ -77,7 +77,7 @@ struct ChildFeature: Reducer {
     }
     init() {}
     @Dependency(\.parentState) var parentState
-    var body: some Reducer<State, Action> {
+    var body: some ReducerProtocolOf<Self> {
         Reduce { state, action in
             switch action {
             case .counter(.willChange(let newValue)):

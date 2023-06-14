@@ -75,7 +75,7 @@ extension ChildState: Equatable where Key.Value: Equatable {
 extension ChildState: Sendable where Key.Value: Sendable {}
 
 /// A reducer that shares parent state its child reducer.
-public struct WithParentState<Key: SharedStateKey, ParentReducerState, ParentAction, Child: Reducer>: Reducer
+public struct WithParentState<Key: SharedStateKey, ParentReducerState, ParentAction, Child: ReducerProtocol>: ReducerProtocol
 where Key.Value: Equatable, ParentReducerState == Child.State, ParentAction == Child.Action
 {
     public init(
@@ -102,7 +102,7 @@ public enum SharedStateAction<Key: SharedStateKey> {
 extension SharedStateAction: Equatable where Key.Value: Equatable {}
 extension SharedStateAction: Sendable where Key.Value: Sendable {}
 
-extension Reducer {
+extension ReducerProtocol {
     /// Enables a `ChildState` to participate in shared state.
     ///
     /// Without applying this modifier, `ChildState` will take its parent
@@ -110,7 +110,7 @@ extension Reducer {
     public func sharedState<Key: SharedStateKey>(
         _ toSharedState: WritableKeyPath<State, ChildState<Key>>,
         action toSharedAction: CasePath<Action, SharedStateAction<Key>>
-    ) -> some Reducer<State, Action>
+    ) -> some ReducerProtocol<State, Action>
     where Key.Value: Equatable
     {
         _ObserveSharedState(
@@ -129,7 +129,7 @@ extension Reducer {
     public func sharedState<Key: SharedStateKey>(
         _ toSharedState: WritableKeyPath<State, ParentState<Key>>,
         action toSharedAction: CasePath<Action, SharedStateAction<Key>>
-    ) -> some Reducer<State, Action>
+    ) -> some ReducerProtocol<State, Action>
     where Key.Value: Equatable
     {
         _ObserveSharedState(
@@ -151,7 +151,7 @@ fileprivate protocol ObservableSharedState {
 extension ParentState: ObservableSharedState {}
 extension ChildState: ObservableSharedState {}
 
-fileprivate struct _ObserveSharedState<Key: SharedStateKey, Observer: ObservableSharedState, ParentState, ParentAction, Base: Reducer>: Reducer
+fileprivate struct _ObserveSharedState<Key: SharedStateKey, Observer: ObservableSharedState, ParentState, ParentAction, Base: ReducerProtocol>: ReducerProtocol
 where Key.Value: Equatable, Observer.Value == Key.Value, ParentState == Base.State, ParentAction == Base.Action {
     let toSharedState: WritableKeyPath<ParentState, Observer>
     let toSharedAction: CasePath<ParentAction, SharedStateAction<Key>>
@@ -159,7 +159,7 @@ where Key.Value: Equatable, Observer.Value == Key.Value, ParentState == Base.Sta
     let scopeId: (ParentState) -> _ScopeIdentifier
     @Dependency(\._scopedValues) var sharedValues
     func reduce(into state: inout ParentState, action: ParentAction) -> EffectTask<ParentAction> {
-        let effects: Effect<Action>
+        let effects: EffectTask<Action>
         switch self.toSharedAction.extract(from: action) {
         case .willChange(let value):
             effects = self.base.reduce(into: &state, action: action)
