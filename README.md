@@ -4,7 +4,7 @@ Tools to share state from parent to child features in [The Composable Architectu
 
 ## Status
 
-Experimental. Targeting TCA `prerelease/1.0` for development.
+Experimental.
 
 ## Goals
 
