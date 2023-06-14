@@ -6,7 +6,7 @@ let package = Package(
     name: "composable-shared-state",
     platforms: [
         .iOS(.v15),
-//        .macOS(.v10_15),
+        .macOS(.v12),
 //        .tvOS(.v13),
 //        .watchOS(.v6),
     ],
@@ -14,10 +14,7 @@ let package = Package(
         .library(name: "ComposableSharedState", targets: ["ComposableSharedState"]),
     ],
     dependencies: [
-        .package(
-            url: "https://github.com/pointfreeco/swift-composable-architecture",
-            from: "0.54.0"
-        )
+        .package(url: "https://github.com/pointfreeco/swift-composable-architecture", from: "0.54.0")
     ],
     targets: [
         .target(
